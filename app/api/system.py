@@ -68,6 +68,12 @@ async def set_scenario(
 
     state.scenario = scenario
     state.tick_count = 0
+    state.reset_to_defaults()
+
+    # Clear in-memory alerts from previous scenario
+    from app.main import latest_alerts
+    latest_alerts.clear()
+
     logger.info("scenario_switched", scenario=scenario)
 
     return {"scenario": scenario, "message": f"Switched to '{scenario}'"}

@@ -124,6 +124,12 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
             _previous_grade = health.grade
 
             alerts = check_alerts(snapshot, _db_thresholds)
+
+            # Recompute health with alert penalties
+            if alerts:
+                health = compute_health(snapshot, alerts)
+                latest_health["value"] = health
+
             if alerts:
                 latest_alerts.extend(alerts)
                 # Keep only last 200 alerts in memory

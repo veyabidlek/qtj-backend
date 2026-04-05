@@ -72,7 +72,7 @@ def get_status(score: int) -> str:
     return "Критично"
 
 
-def compute_health(snapshot: TelemetrySnapshotSchema) -> HealthIndex:
+def compute_health(snapshot: TelemetrySnapshotSchema, active_alerts: list | None = None) -> HealthIndex:
     cfg = get_config()
     weights = cfg["weights"]
 
@@ -113,12 +113,27 @@ def compute_health(snapshot: TelemetrySnapshotSchema) -> HealthIndex:
         fuel=round(fuel_score),
     )
 
-    score = round(
+    raw_score = (
         breakdown.engine * weights["engine"]
         + breakdown.electrical * weights["electrical"]
         + breakdown.brakes * weights["brakes"]
         + breakdown.fuel * weights["fuel"]
     )
+
+    # Apply alert penalties
+    penalty = 0
+    if active_alerts:
+        penalties_cfg = cfg.get("penalties", {})
+        warning_penalty = penalties_cfg.get("warning_alert", 10)
+        critical_penalty = penalties_cfg.get("critical_alert", 25)
+        for alert in active_alerts:
+            severity = getattr(alert, "severity", None) or alert.get("severity", "")
+            if severity == "critical":
+                penalty += critical_penalty
+            elif severity == "warning":
+                penalty += warning_penalty
+
+    score = round(max(0, raw_score - penalty))
 
     factors = [
         HealthFactor(parameter="Двигатель", impact=breakdown.engine, status=get_status(breakdown.engine)),

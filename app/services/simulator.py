@@ -5,8 +5,18 @@ from app.schemas.telemetry import TelemetrySnapshotSchema, TelemetryPosition
 from app.services.routes import RouteManager
 from app.utils.math import clamp
 
+# KZ8A Electric Locomotive characteristics
+# Max speed: 120 km/h, sustained speed: 52 km/h, cruising: ~75-80 km/h
+# Power: 8×1100 kW = 8800 kW, Mass: 200 t, AC 25 kV
+# Traction motors: 8× asynchronous, 1072.5 kW each (sustained)
+
+CRUISING_SPEED = 78.0       # typical freight cruising speed (km/h)
+MAX_SPEED = 120.0           # construction max
+ACCEL_TICKS = 3             # ticks to reach cruising speed from standstill
+MEAN_REVERSION = 0.15       # how strongly speed returns to cruising target
+
 INITIAL_STATE = {
-    "speed": 80,
+    "speed": 0,
     "temperature": 72,
     "oil_temperature": 85,
     "vibration": 2.1,
@@ -45,6 +55,13 @@ class SimulatorState:
         self.lat = INITIAL_STATE["lat"]
         self.lng = INITIAL_STATE["lng"]
 
+        self.route_manager = RouteManager()
+        self.route_completed = False
+
+    def reset_to_defaults(self) -> None:
+        """Reset all telemetry values to safe initial state."""
+        for key, value in INITIAL_STATE.items():
+            setattr(self, key, value)
         self.route_manager = RouteManager()
         self.route_completed = False
 
@@ -114,12 +131,21 @@ class SimulatorState:
         self.tick_count += 1
         bias = self._apply_scenario_bias()
 
-        self.speed = clamp(
-            self.speed + drift(8) + bias.get("speed", 0),
-            0, 200,
-        )
+        # Speed: acceleration phase then mean-reversion to cruising speed
+        if self.tick_count <= ACCEL_TICKS:
+            # Ramp up from 0 to cruising speed over ACCEL_TICKS
+            target = CRUISING_SPEED * (self.tick_count / ACCEL_TICKS)
+            self.speed = clamp(target + drift(3), 0, MAX_SPEED)
+        else:
+            # Mean-revert toward cruising speed + scenario bias + small noise
+            speed_target = CRUISING_SPEED + bias.get("speed", 0)
+            reversion = (speed_target - self.speed) * MEAN_REVERSION
+            self.speed = clamp(
+                self.speed + reversion + drift(3),
+                0, MAX_SPEED,
+            )
         self.temperature = clamp(
-            self.temperature + drift(2) + (0.3 if self.speed > 120 else -0.1) + bias.get("temperature", 0),
+            self.temperature + drift(2) + (0.3 if self.speed > 100 else -0.1) + bias.get("temperature", 0),
             40, 120,
         )
         self.oil_temperature = clamp(
@@ -134,8 +160,11 @@ class SimulatorState:
             self.voltage + drift(0.3) + bias.get("voltage", 0),
             20, 30,
         )
+        # Current proportional to power: P = V × I, at 25kV
+        # Cruising ~350A, accelerating ~500A, idle ~100A
+        target_current = 100 + self.speed * 4.5
         self.current = clamp(
-            self.current + drift(30) + bias.get("current", 0),
+            self.current + (target_current - self.current) * 0.1 + drift(15) + bias.get("current", 0),
             100, 1000,
         )
         self.fuel_level = clamp(
@@ -150,7 +179,9 @@ class SimulatorState:
             self.brake_pressure + drift(0.03) + bias.get("brake_pressure", 0),
             0.1, 1.0,
         )
-        self.traction_effort = clamp(self.speed * 2.5 + drift(20), 0, 500)
+        # KZ8A: max traction ~450 kN at low speed, decreasing with speed
+        base_traction = max(0, 450 - self.speed * 2.5) if self.speed > 0 else 0
+        self.traction_effort = clamp(base_traction + drift(15), 0, 500)
         self.efficiency = clamp(
             self.efficiency + drift(2) + bias.get("efficiency", 0),
             40, 100,
