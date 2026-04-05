@@ -49,11 +49,11 @@ async def start_route(
 
     state.route_manager.start(route_id)
     state.route_completed = False
+    state.reset_to_defaults()
 
-    # Reset position to first station
-    first_station = ROUTES[route_id]["stations"][0]
-    state.lat = first_station["lat"]
-    state.lng = first_station["lng"]
+    # Clear in-memory alerts
+    from app.main import latest_alerts
+    latest_alerts.clear()
 
     logger.info("route_started", route_id=route_id)
     return RouteStartResponse(message="Route started", route=route_id)
