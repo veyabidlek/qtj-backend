@@ -99,8 +99,11 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
 
     while True:
         try:
-            # Skip telemetry when route is completed
+            # When route is completed, keep broadcasting last snapshot (frozen)
             if state.route_completed:
+                if latest_snapshot["value"] is not None:
+                    json_str = latest_snapshot["value"].model_dump_json(by_alias=True)
+                    await mgr.broadcast(json_str)
                 await asyncio.sleep(settings.simulator_interval_ms / 1000.0)
                 continue
 
