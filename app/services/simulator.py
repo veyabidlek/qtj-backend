@@ -95,39 +95,43 @@ class SimulatorState:
             bias["fuel_consumption"] = 10
 
         elif self.scenario == "demo":
-            # Phase 1 (0-20s): normal cruise
-            # Phase 2 (20-50s): overheat — alerts within ~15s
-            # Phase 3 (50-80s): brake failure — alerts within ~15s
-            # Phase 4 (80-100s): recovery
+            # Phase 1 (0-40s): normal cruise — health A
+            # Phase 2 (40-55s): mild stress — health dips to B
+            # Phase 3 (55-70s): moderate stress — health dips to B/C
+            # Phase 4 (70-100s): recovery back to A
             # Repeats every 100s
             phase = (self.tick_count % 100)
-            if phase < 20:
+            if phase < 40:
                 # Normal — gently push back to safe values
                 if self.temperature > 80:
-                    bias["temperature"] = -1.5
-                if self.brake_pressure < 0.4:
-                    bias["brake_pressure"] = 0.02
+                    bias["temperature"] = -1.0
+                if self.oil_temperature > 90:
+                    bias["oil_temperature"] = -0.5
+                if self.brake_pressure < 0.5:
+                    bias["brake_pressure"] = 0.015
                 if self.vibration > 3:
-                    bias["vibration"] = -0.15
-            elif phase < 50:
-                # Overheat phase
-                bias["temperature"] = 2.0
-                bias["oil_temperature"] = 1.2
-                bias["vibration"] = 0.2
-                bias["efficiency"] = -0.8
-            elif phase < 80:
-                # Brake failure phase
-                bias["brake_pressure"] = -0.02
-                bias["vibration"] = 0.2
-                bias["voltage"] = -0.15
+                    bias["vibration"] = -0.1
+                if self.efficiency < 85:
+                    bias["efficiency"] = 0.5
+            elif phase < 55:
+                # Mild overheat — warning level, not critical
+                bias["temperature"] = 0.8
+                bias["oil_temperature"] = 0.5
+                bias["vibration"] = 0.08
+                bias["efficiency"] = -0.3
+            elif phase < 70:
+                # Moderate brake stress — warning level
+                bias["brake_pressure"] = -0.008
+                bias["vibration"] = 0.1
+                bias["voltage"] = -0.05
             else:
-                # Recovery
-                bias["temperature"] = -2.0
-                bias["oil_temperature"] = -1.0
-                bias["brake_pressure"] = 0.03
-                bias["vibration"] = -0.2
-                bias["voltage"] = 0.1
-                bias["efficiency"] = 0.8
+                # Recovery — pull everything back to normal
+                bias["temperature"] = -1.5
+                bias["oil_temperature"] = -0.8
+                bias["brake_pressure"] = 0.02
+                bias["vibration"] = -0.15
+                bias["voltage"] = 0.08
+                bias["efficiency"] = 0.6
 
         return bias
 
