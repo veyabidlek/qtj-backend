@@ -1,5 +1,35 @@
+import logging
+import os
+
+import yaml
+
 from app.schemas.health import HealthIndex, HealthBreakdown, HealthFactor
 from app.schemas.telemetry import TelemetrySnapshotSchema
+
+logger = logging.getLogger("locomotive")
+
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "health_config.yaml")
+
+_config: dict | None = None
+
+
+def _load_config() -> dict:
+    with open(_CONFIG_PATH, "r") as f:
+        return yaml.safe_load(f)
+
+
+def get_config() -> dict:
+    global _config
+    if _config is None:
+        _config = _load_config()
+    return _config
+
+
+def reload_config() -> dict:
+    global _config
+    _config = _load_config()
+    logger.info("Health config reloaded from %s", _CONFIG_PATH)
+    return _config
 
 
 def score_param(
@@ -25,14 +55,12 @@ def score_param(
 
 
 def get_grade(score: int) -> str:
-    if score >= 80:
-        return "A"
-    if score >= 60:
-        return "B"
-    if score >= 40:
-        return "C"
-    if score >= 20:
-        return "D"
+    cfg = get_config()
+    grades = cfg.get("grades", {})
+    # Sort grades by min descending to find the first match
+    for grade_letter in sorted(grades, key=lambda g: grades[g]["min"], reverse=True):
+        if score >= grades[grade_letter]["min"]:
+            return grade_letter
     return "E"
 
 
@@ -45,25 +73,38 @@ def get_status(score: int) -> str:
 
 
 def compute_health(snapshot: TelemetrySnapshotSchema) -> HealthIndex:
+    cfg = get_config()
+    weights = cfg["weights"]
+
     # Engine subsystem
     engine_temp = score_param(snapshot.temperature, 0, 120, 95, 105, invert=False)
     oil_temp = score_param(snapshot.oil_temperature, 0, 150, 110, 130, invert=False)
     vib = score_param(snapshot.vibration, 0, 10, 5, 7, invert=False)
-    engine_score = (engine_temp + oil_temp + vib) / 3.0
+
+    params = cfg["parameters"]
+    engine_score = (
+        engine_temp * params["temperature"]["weight_in_group"]
+        + oil_temp * params["oil_temperature"]["weight_in_group"]
+        + vib * params["vibration"]["weight_in_group"]
+    )
 
     # Electrical subsystem
     volt = score_param(snapshot.voltage, 20, 30, 22, 21, invert=True)
     curr = score_param(snapshot.current, 0, 1000, 800, 900, invert=False)
     eff = score_param(100 - snapshot.efficiency, 0, 100, 40, 60, invert=False)
-    electrical_score = (volt + curr + eff) / 3.0
+    electrical_score = (
+        volt * params["voltage"]["weight_in_group"]
+        + curr * params["current"]["weight_in_group"]
+        + eff * params["efficiency"]["weight_in_group"]
+    )
 
     # Brakes subsystem
     brake = score_param(1 - snapshot.brake_pressure, 0, 1, 0.7, 0.85, invert=False)
-    brakes_score = brake
+    brakes_score = brake * params["brake_pressure"]["weight_in_group"]
 
     # Fuel subsystem
     fuel = score_param(100 - snapshot.fuel_level, 0, 100, 75, 90, invert=False)
-    fuel_score = fuel
+    fuel_score = fuel * params["fuel_level"]["weight_in_group"]
 
     breakdown = HealthBreakdown(
         engine=round(engine_score),
@@ -73,10 +114,10 @@ def compute_health(snapshot: TelemetrySnapshotSchema) -> HealthIndex:
     )
 
     score = round(
-        breakdown.engine * 0.30
-        + breakdown.electrical * 0.25
-        + breakdown.brakes * 0.25
-        + breakdown.fuel * 0.20
+        breakdown.engine * weights["engine"]
+        + breakdown.electrical * weights["electrical"]
+        + breakdown.brakes * weights["brakes"]
+        + breakdown.fuel * weights["fuel"]
     )
 
     factors = [

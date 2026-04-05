@@ -3,11 +3,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.threshold import ThresholdConfig
+from app.core.security import verify_api_key
+from app.repositories import health_config_repo
 
 logger = logging.getLogger("locomotive")
 
@@ -45,8 +45,7 @@ class ThresholdUpdateRequest(BaseModel):
     description="Returns all threshold configurations.",
 )
 async def get_thresholds(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ThresholdConfig))
-    rows = result.scalars().all()
+    rows = await health_config_repo.get_all_thresholds(db)
     return {
         "data": [
             ThresholdResponse.model_validate(r).model_dump(by_alias=True)
@@ -62,19 +61,14 @@ async def get_thresholds(db: AsyncSession = Depends(get_db)):
 )
 async def update_threshold(
     body: ThresholdUpdateRequest,
+    _api_key: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(ThresholdConfig).where(ThresholdConfig.parameter == body.parameter)
+    config = await health_config_repo.update_threshold(
+        db, body.parameter, body.warning_value, body.critical_value
     )
-    config = result.scalar_one_or_none()
     if config is None:
         raise HTTPException(status_code=404, detail=f"Parameter '{body.parameter}' not found")
 
-    config.warning_value = body.warning_value
-    config.critical_value = body.critical_value
-    await db.commit()
-    await db.refresh(config)
     logger.info("Updated threshold for %s: warning=%.2f, critical=%.2f", body.parameter, body.warning_value, body.critical_value)
-
     return ThresholdResponse.model_validate(config).model_dump(by_alias=True)

@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from io import StringIO
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.telemetry import TelemetrySnapshot
+from app.repositories import telemetry_repo
 from app.schemas.telemetry import TelemetrySnapshotSchema, TelemetryPosition
 
 router = APIRouter(prefix="/api", tags=["telemetry"])
@@ -40,13 +40,7 @@ async def get_history(
     minutes: int = Query(15, ge=1, le=1440, description="Number of minutes of history"),
     db: AsyncSession = Depends(get_db),
 ):
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    result = await db.execute(
-        select(TelemetrySnapshot)
-        .where(TelemetrySnapshot.timestamp >= cutoff)
-        .order_by(TelemetrySnapshot.timestamp.asc())
-    )
-    rows = result.scalars().all()
+    rows = await telemetry_repo.get_history(db, minutes)
     return {"data": [row_to_schema(r) for r in rows]}
 
 
@@ -59,13 +53,7 @@ async def export_history(
     minutes: int = Query(60, ge=1, le=4320, description="Number of minutes to export"),
     db: AsyncSession = Depends(get_db),
 ):
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    result = await db.execute(
-        select(TelemetrySnapshot)
-        .where(TelemetrySnapshot.timestamp >= cutoff)
-        .order_by(TelemetrySnapshot.timestamp.asc())
-    )
-    rows = result.scalars().all()
+    rows = await telemetry_repo.export_history(db, minutes)
 
     output = StringIO()
     output.write("timestamp,speed,temperature,oilTemperature,vibration,voltage,current,fuelLevel,fuelConsumption,brakePressure,tractionEffort,efficiency,lat,lng\n")

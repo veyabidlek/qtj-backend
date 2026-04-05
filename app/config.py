@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     history_retention_hours: int = 72
     log_level: str = "INFO"
     simulator_scenario: str = "normal"  # normal | overheat | brake_failure | low_fuel | highload | demo
+    api_key: str = "dev-api-key"
 
     class Config:
         env_file = ".env"

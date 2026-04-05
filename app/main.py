@@ -1,19 +1,19 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import delete, select, func
 
 from app.config import settings
 from app.core.database import engine, Base, async_session
 from app.models.telemetry import TelemetrySnapshot
 from app.models.alert import Alert
 from app.models.threshold import ThresholdConfig
+from app.repositories import telemetry_repo, alert_repo, health_config_repo
 from app.services.simulator import SimulatorState
-from app.services.alerts import check_alerts
+from app.services.alerts import check_alerts, DEFAULT_THRESHOLDS
 from app.services.broadcast import ConnectionManager
 from app.api.websocket import router as ws_router, manager
 from app.api.health import router as health_router
@@ -49,19 +49,28 @@ latest_health = {"value": None}
 latest_alerts: list = []
 simulator_running = {"value": False}
 
+# Thresholds loaded from DB, used by check_alerts
+_db_thresholds: dict[str, dict[str, float]] | None = None
+
+
+async def load_thresholds_from_db() -> dict[str, dict[str, float]]:
+    """Load thresholds from DB and convert to dict format for check_alerts."""
+    try:
+        async with async_session() as session:
+            rows = await health_config_repo.get_all_thresholds(session)
+            return {
+                row.parameter: {"warning": row.warning_value, "critical": row.critical_value}
+                for row in rows
+            }
+    except Exception as e:
+        logger.error("Failed to load thresholds from DB, using defaults: %s", e)
+        return DEFAULT_THRESHOLDS
+
 
 async def seed_threshold_config() -> None:
     async with async_session() as session:
-        result = await session.execute(select(func.count()).select_from(ThresholdConfig))
-        count = result.scalar()
-        if count and count > 0:
-            logger.info("Threshold config already seeded (%d rows)", count)
-            return
-
-        for row in THRESHOLD_SEED_DATA:
-            session.add(ThresholdConfig(**row))
-        await session.commit()
-        logger.info("Seeded %d threshold config rows", len(THRESHOLD_SEED_DATA))
+        await health_config_repo.seed_thresholds(session, THRESHOLD_SEED_DATA)
+        logger.info("Threshold config seed check complete")
 
 
 # Shared simulator state — accessible for scenario switching
@@ -69,6 +78,7 @@ simulator_state: dict[str, SimulatorState | None] = {"instance": None}
 
 
 async def simulator_loop(mgr: ConnectionManager) -> None:
+    global _db_thresholds
     from app.services.health import compute_health
 
     state = SimulatorState(scenario=settings.simulator_scenario)
@@ -76,6 +86,9 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
     db_buffer: list[dict] = []
     batch_size = settings.db_batch_interval_s
     simulator_running["value"] = True
+
+    # Load thresholds from DB
+    _db_thresholds = await load_thresholds_from_db()
 
     while True:
         try:
@@ -85,7 +98,7 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
             health = compute_health(snapshot)
             latest_health["value"] = health
 
-            alerts = check_alerts(snapshot)
+            alerts = check_alerts(snapshot, _db_thresholds)
             if alerts:
                 latest_alerts.extend(alerts)
                 # Keep only last 200 alerts in memory
@@ -96,15 +109,15 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
                 try:
                     async with async_session() as session:
                         for a in alerts:
-                            session.add(Alert(
-                                timestamp=datetime.fromtimestamp(a.timestamp / 1000, tz=timezone.utc),
-                                severity=a.severity,
-                                message=a.message,
-                                parameter=a.parameter,
-                                value=a.value,
-                                threshold=a.threshold,
-                                error_code=a.error_code,
-                            ))
+                            await alert_repo.insert_alert(session, {
+                                "timestamp": datetime.fromtimestamp(a.timestamp / 1000, tz=timezone.utc),
+                                "severity": a.severity,
+                                "message": a.message,
+                                "parameter": a.parameter,
+                                "value": a.value,
+                                "threshold": a.threshold,
+                                "error_code": a.error_code,
+                            })
                         await session.commit()
                 except Exception as e:
                     logger.error("Failed to store alerts: %s", e)
@@ -132,9 +145,7 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
             if len(db_buffer) >= batch_size:
                 try:
                     async with async_session() as session:
-                        for row in db_buffer:
-                            session.add(TelemetrySnapshot(**row))
-                        await session.commit()
+                        await telemetry_repo.insert_batch(session, db_buffer)
                     logger.debug("Batch inserted %d telemetry rows", len(db_buffer))
                 except Exception as e:
                     logger.error("Failed to batch insert telemetry: %s", e)
@@ -150,15 +161,10 @@ async def cleanup_old_data() -> None:
     while True:
         await asyncio.sleep(3600)  # every hour
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.history_retention_hours)
             async with async_session() as session:
-                await session.execute(
-                    delete(TelemetrySnapshot).where(TelemetrySnapshot.timestamp < cutoff)
-                )
-                await session.execute(
-                    delete(Alert).where(Alert.timestamp < cutoff)
-                )
-                await session.commit()
+                await telemetry_repo.delete_old(session, settings.history_retention_hours)
+            async with async_session() as session:
+                await alert_repo.delete_old(session, settings.history_retention_hours)
             logger.info("Cleaned up data older than %d hours", settings.history_retention_hours)
         except Exception as e:
             logger.error("Cleanup error: %s", e)

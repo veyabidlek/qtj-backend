@@ -1,6 +1,8 @@
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from app.core.security import verify_api_key
 
 logger = logging.getLogger("locomotive")
 
@@ -45,6 +47,7 @@ async def healthz():
 )
 async def set_scenario(
     scenario: str = Query(..., description="Scenario name"),
+    _api_key: str = Depends(verify_api_key),
 ):
     from app.main import simulator_state
 

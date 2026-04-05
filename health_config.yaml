@@ -1,0 +1,38 @@
+weights:
+  engine: 0.30
+  electrical: 0.25
+  brakes: 0.25
+  fuel: 0.20
+
+parameters:
+  temperature:
+    weight_in_group: 0.33
+    group: engine
+  oil_temperature:
+    weight_in_group: 0.33
+    group: engine
+  vibration:
+    weight_in_group: 0.34
+    group: engine
+  voltage:
+    weight_in_group: 0.33
+    group: electrical
+  current:
+    weight_in_group: 0.33
+    group: electrical
+  efficiency:
+    weight_in_group: 0.34
+    group: electrical
+  brake_pressure:
+    weight_in_group: 1.0
+    group: brakes
+  fuel_level:
+    weight_in_group: 1.0
+    group: fuel
+
+grades:
+  A: { min: 80 }
+  B: { min: 60 }
+  C: { min: 40 }
+  D: { min: 20 }
+  E: { min: 0 }
