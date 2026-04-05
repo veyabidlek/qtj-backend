@@ -28,3 +28,4 @@ class TelemetrySnapshotSchema(BaseModel):
     efficiency: float
     position: TelemetryPosition
     train_state: str = "moving"  # "stopped", "moving", "approaching_station"
+    background_key: str = "qulsary-image"  # e.g. "qulsary-moving", "aqtau-approaching"

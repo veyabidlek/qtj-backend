@@ -2,8 +2,26 @@ import random
 import time
 
 from app.schemas.telemetry import TelemetrySnapshotSchema, TelemetryPosition
-from app.services.routes import RouteManager
+from app.services.routes import RouteManager, RouteTickResult
 from app.utils.math import clamp
+
+STATION_KEY = {
+    "Кульсары": "qulsary",
+    "Актау": "aqtau",
+    "Алматы": "almaty",
+    "Астана": "astana",
+}
+
+
+def _resolve_background_key(result: RouteTickResult, train_state: str) -> str:
+    current_key = STATION_KEY.get(result.current_station_name, "qulsary")
+    next_key = STATION_KEY.get(result.next_station_name or "", current_key)
+
+    if result.completed or train_state == "stopped":
+        return f"{current_key}-image"
+    if train_state == "approaching_station":
+        return f"{next_key}-approaching"
+    return f"{current_key}-moving"
 
 # KZ8A Electric Locomotive characteristics
 # Max speed: 120 km/h, sustained speed: 52 km/h, cruising: ~75-80 km/h
@@ -198,12 +216,13 @@ class SimulatorState:
 
         # Advance along the active route
         train_state = "moving"
+        route_result: RouteTickResult | None = None
         if not self.route_completed:
-            result = self.route_manager.tick()
-            self.lat = result.lat
-            self.lng = result.lng
+            route_result = self.route_manager.tick()
+            self.lat = route_result.lat
+            self.lng = route_result.lng
 
-            if result.at_station:
+            if route_result.at_station:
                 train_state = "stopped"
                 # At station — idle values
                 self.speed = 0
@@ -218,11 +237,10 @@ class SimulatorState:
                 self._was_at_station = True
                 self._ticks_since_depart = 0
 
-                if result.completed:
+                if route_result.completed:
                     self.route_completed = True
-            elif result.approaching_station:
+            elif route_result.approaching_station:
                 train_state = "approaching_station"
-                # Just departed — track acceleration
                 if self._was_at_station:
                     self._was_at_station = False
                     self._ticks_since_depart = 0
@@ -235,6 +253,12 @@ class SimulatorState:
                 self._ticks_since_depart += 1
         else:
             train_state = "stopped"
+
+        # Resolve background key
+        if route_result is not None:
+            background_key = _resolve_background_key(route_result, train_state)
+        else:
+            background_key = "astana-image"  # route completed, at final station
 
         timestamp = int(time.time() * 1000)
 
@@ -253,4 +277,5 @@ class SimulatorState:
             efficiency=self.efficiency,
             position=TelemetryPosition(lat=self.lat, lng=self.lng),
             train_state=train_state,
+            background_key=background_key,
         )
