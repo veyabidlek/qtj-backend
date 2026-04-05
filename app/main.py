@@ -28,6 +28,7 @@ from app.api.history import router as history_router
 from app.api.recommendations import router as recommendations_router
 from app.api.config import router as config_router
 from app.api.system import router as system_router
+from app.api.routes import router as routes_router
 
 setup_logging()
 logger = get_logger("locomotive")
@@ -98,6 +99,11 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
 
     while True:
         try:
+            # Skip telemetry when route is completed
+            if state.route_completed:
+                await asyncio.sleep(settings.simulator_interval_ms / 1000.0)
+                continue
+
             snapshot = state.next_tick()
             latest_snapshot["value"] = snapshot
 
@@ -269,3 +275,4 @@ app.include_router(history_router)
 app.include_router(recommendations_router)
 app.include_router(config_router)
 app.include_router(system_router)
+app.include_router(routes_router)

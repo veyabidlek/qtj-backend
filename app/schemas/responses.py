@@ -55,3 +55,30 @@ class RecommendationListResponse(BaseModel):
 
 class ThresholdListResponse(BaseModel):
     data: list[dict]
+
+
+class StationSchema(BaseModel):
+    name: str
+    lat: float
+    lng: float
+
+
+class RouteSchema(BaseModel):
+    id: str
+    name: str
+    stations: list[StationSchema]
+    default: bool
+
+
+class RouteStartResponse(BaseModel):
+    message: str
+    route: str
+
+
+class RouteStatusResponse(BaseModel):
+    route_id: str
+    current_station_index: int
+    current_station: str
+    next_station: str | None
+    progress: float
+    completed: bool
