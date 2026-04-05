@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.core.security import verify_api_key
+from app.dependencies import ApiKey
 from app.schemas.health import HealthIndex
 from app.schemas.responses import MessageResponse
 
@@ -37,7 +37,7 @@ async def get_health():
     summary="Reload health config",
     description="Reloads health_config.yaml without restart.",
 )
-async def reload_health_config(_api_key: str = Depends(verify_api_key)):
+async def reload_health_config(_api_key: ApiKey):
     from app.services.health import reload_config
 
     reload_config()

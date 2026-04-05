@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from app.core.logging import get_logger
-from app.core.security import verify_api_key
+from app.dependencies import ApiKey
 from app.schemas.responses import (
     HealthCheckResponse,
     ScenarioResponse,
@@ -52,8 +52,8 @@ async def healthz():
     description=f"Switch the simulator scenario. Valid values: {', '.join(VALID_SCENARIOS)}",
 )
 async def set_scenario(
+    _api_key: ApiKey,
     scenario: str = Query(..., description="Scenario name"),
-    _api_key: str = Depends(verify_api_key),
 ):
     from app.main import simulator_state
 

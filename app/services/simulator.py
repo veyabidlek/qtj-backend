@@ -4,6 +4,26 @@ import time
 from app.schemas.telemetry import TelemetrySnapshotSchema, TelemetryPosition
 from app.utils.math import clamp
 
+ASTANA_ALMATY_ROUTE = [
+    (51.1694, 71.4491),   # Astana
+    (50.9983, 71.3654),   # South of Astana
+    (50.5954, 71.1128),   # Karagandy region
+    (50.2839, 70.9536),
+    (49.8028, 70.4567),
+    (49.2101, 69.9345),
+    (48.6733, 69.4012),
+    (48.0195, 68.8234),
+    (47.4536, 68.3456),
+    (46.8467, 67.7892),
+    (46.3012, 67.2345),
+    (45.7234, 66.8901),
+    (45.0123, 76.1234),   # Approaching Almaty region
+    (44.5192, 76.5678),
+    (43.9012, 76.8234),
+    (43.4853, 76.8901),
+    (43.2380, 76.9460),   # Almaty
+]
+
 INITIAL_STATE = {
     "speed": 80,
     "temperature": 72,
@@ -16,8 +36,8 @@ INITIAL_STATE = {
     "brake_pressure": 0.55,
     "traction_effort": 220,
     "efficiency": 88,
-    "lat": 43.238,
-    "lng": 76.946,
+    "lat": 51.1694,
+    "lng": 71.4491,
 }
 
 
@@ -43,6 +63,8 @@ class SimulatorState:
         self.efficiency = INITIAL_STATE["efficiency"]
         self.lat = INITIAL_STATE["lat"]
         self.lng = INITIAL_STATE["lng"]
+        self.route_progress = 0.0
+        self._route_direction = 1  # 1 = forward, -1 = reverse
 
     def _apply_scenario_bias(self) -> dict[str, float]:
         """Returns additive biases per parameter based on active scenario."""
@@ -152,10 +174,23 @@ class SimulatorState:
             40, 100,
         )
 
-        lat_step = 0.002 * (random.random() * 0.5 + 0.5)
-        lng_step = -0.001 * (random.random() * 0.5 + 0.5)
-        self.lat += lat_step
-        self.lng += lng_step
+        # Advance along the Astana-Almaty route
+        self.route_progress += self._route_direction * 0.002
+        if self.route_progress >= 1.0:
+            self.route_progress = 1.0
+            self._route_direction = -1
+        elif self.route_progress <= 0.0:
+            self.route_progress = 0.0
+            self._route_direction = 1
+
+        num_segments = len(ASTANA_ALMATY_ROUTE) - 1
+        scaled = self.route_progress * num_segments
+        idx = min(int(scaled), num_segments - 1)
+        frac = scaled - idx
+        lat1, lng1 = ASTANA_ALMATY_ROUTE[idx]
+        lat2, lng2 = ASTANA_ALMATY_ROUTE[idx + 1]
+        self.lat = lat1 + (lat2 - lat1) * frac
+        self.lng = lng1 + (lng2 - lng1) * frac
 
         timestamp = int(time.time() * 1000)
 

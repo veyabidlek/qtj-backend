@@ -1,11 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.security import verify_api_key
+from app.dependencies import ApiKey, DbSession
 from app.repositories import health_config_repo
 from app.schemas.responses import ThresholdListResponse
 
@@ -45,7 +43,7 @@ class ThresholdUpdateRequest(BaseModel):
     summary="Get all threshold configs",
     description="Returns all threshold configurations.",
 )
-async def get_thresholds(db: AsyncSession = Depends(get_db)):
+async def get_thresholds(db: DbSession):
     rows = await health_config_repo.get_all_thresholds(db)
     return {
         "data": [
@@ -63,8 +61,8 @@ async def get_thresholds(db: AsyncSession = Depends(get_db)):
 )
 async def update_threshold(
     body: ThresholdUpdateRequest,
-    _api_key: str = Depends(verify_api_key),
-    db: AsyncSession = Depends(get_db),
+    db: DbSession,
+    _api_key: ApiKey,
 ):
     config = await health_config_repo.update_threshold(
         db, body.parameter, body.warning_value, body.critical_value

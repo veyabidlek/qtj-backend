@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     simulator_scenario: str = "normal"  # normal | overheat | brake_failure | low_fuel | highload | demo
     api_key: str = "dev-api-key"
+    environment: str = "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
 
     class Config:
         env_file = ".env"

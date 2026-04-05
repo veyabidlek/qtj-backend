@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 from io import StringIO
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.dependencies import DbSession
 from app.models.telemetry import TelemetrySnapshot
 from app.repositories import telemetry_repo
 from app.schemas.responses import HistoryResponse
@@ -39,8 +38,8 @@ def row_to_schema(row: TelemetrySnapshot) -> dict:
     description="Returns telemetry snapshots from the last N minutes.",
 )
 async def get_history(
+    db: DbSession,
     minutes: int = Query(15, ge=1, le=1440, description="Number of minutes of history"),
-    db: AsyncSession = Depends(get_db),
 ):
     rows = await telemetry_repo.get_history(db, minutes)
     return {"data": [row_to_schema(r) for r in rows]}
@@ -52,8 +51,8 @@ async def get_history(
     description="Returns CSV file as download.",
 )
 async def export_history(
+    db: DbSession,
     minutes: int = Query(60, ge=1, le=4320, description="Number of minutes to export"),
-    db: AsyncSession = Depends(get_db),
 ):
     rows = await telemetry_repo.export_history(db, minutes)
 
