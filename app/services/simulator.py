@@ -49,57 +49,60 @@ class SimulatorState:
         bias: dict[str, float] = {}
 
         if self.scenario == "overheat":
-            # Temperature climbs steadily, oil follows, efficiency drops
-            bias["temperature"] = 0.8
-            bias["oil_temperature"] = 0.5
-            bias["vibration"] = 0.1
-            bias["efficiency"] = -0.3
+            bias["temperature"] = 2.0
+            bias["oil_temperature"] = 1.5
+            bias["vibration"] = 0.2
+            bias["efficiency"] = -0.8
 
         elif self.scenario == "brake_failure":
-            # Brake pressure drops steadily, vibration rises
-            bias["brake_pressure"] = -0.008
-            bias["vibration"] = 0.15
+            bias["brake_pressure"] = -0.02
+            bias["vibration"] = 0.2
 
         elif self.scenario == "low_fuel":
-            # Fuel drops 10x faster than normal
-            bias["fuel_level"] = -0.4
-            bias["efficiency"] = -0.2
+            bias["fuel_level"] = -1.0
+            bias["efficiency"] = -0.5
 
         elif self.scenario == "highload":
-            # Speed up, everything stressed
-            bias["speed"] = 2.0
-            bias["temperature"] = 0.5
-            bias["current"] = 15
-            bias["vibration"] = 0.08
-            bias["fuel_consumption"] = 5
+            bias["speed"] = 4.0
+            bias["temperature"] = 1.5
+            bias["current"] = 25
+            bias["vibration"] = 0.15
+            bias["fuel_consumption"] = 10
 
         elif self.scenario == "demo":
-            # Cycles through phases to show variety during a live demo
-            # Phase 1 (0-30s): normal cruise
-            # Phase 2 (30-60s): overheat developing
-            # Phase 3 (60-90s): brake pressure dropping
-            # Phase 4 (90-120s): recovery back to normal
-            # Then repeats
-            phase = (self.tick_count % 120)
-            if phase < 30:
-                pass  # normal
-            elif phase < 60:
-                bias["temperature"] = 1.0
-                bias["oil_temperature"] = 0.6
-                bias["vibration"] = 0.12
-                bias["efficiency"] = -0.4
-            elif phase < 90:
-                bias["brake_pressure"] = -0.01
-                bias["vibration"] = 0.15
-                bias["voltage"] = -0.08
+            # Phase 1 (0-20s): normal cruise
+            # Phase 2 (20-50s): overheat — alerts within ~15s
+            # Phase 3 (50-80s): brake failure — alerts within ~15s
+            # Phase 4 (80-100s): recovery
+            # Repeats every 100s
+            phase = (self.tick_count % 100)
+            if phase < 20:
+                # Normal — gently push back to safe values
+                if self.temperature > 80:
+                    bias["temperature"] = -1.5
+                if self.brake_pressure < 0.4:
+                    bias["brake_pressure"] = 0.02
+                if self.vibration > 3:
+                    bias["vibration"] = -0.15
+            elif phase < 50:
+                # Overheat phase
+                bias["temperature"] = 2.0
+                bias["oil_temperature"] = 1.2
+                bias["vibration"] = 0.2
+                bias["efficiency"] = -0.8
+            elif phase < 80:
+                # Brake failure phase
+                bias["brake_pressure"] = -0.02
+                bias["vibration"] = 0.2
+                bias["voltage"] = -0.15
             else:
-                # Recovery: push values back toward normal
-                bias["temperature"] = -0.6
-                bias["oil_temperature"] = -0.4
-                bias["brake_pressure"] = 0.008
-                bias["vibration"] = -0.1
-                bias["voltage"] = 0.05
-                bias["efficiency"] = 0.3
+                # Recovery
+                bias["temperature"] = -2.0
+                bias["oil_temperature"] = -1.0
+                bias["brake_pressure"] = 0.03
+                bias["vibration"] = -0.2
+                bias["voltage"] = 0.1
+                bias["efficiency"] = 0.8
 
         return bias
 
