@@ -1,12 +1,12 @@
-import logging
 import os
 
 import yaml
 
+from app.core.logging import get_logger
 from app.schemas.health import HealthIndex, HealthBreakdown, HealthFactor
 from app.schemas.telemetry import TelemetrySnapshotSchema
 
-logger = logging.getLogger("locomotive")
+logger = get_logger("locomotive.health")
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "health_config.yaml")
 
@@ -28,7 +28,7 @@ def get_config() -> dict:
 def reload_config() -> dict:
     global _config
     _config = _load_config()
-    logger.info("Health config reloaded from %s", _CONFIG_PATH)
+    logger.info("health_config_reloaded", path=_CONFIG_PATH)
     return _config
 
 

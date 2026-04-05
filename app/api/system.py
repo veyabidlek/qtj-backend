@@ -1,10 +1,14 @@
-import logging
-
 from fastapi import APIRouter, Depends, Query
 
+from app.core.logging import get_logger
 from app.core.security import verify_api_key
+from app.schemas.responses import (
+    HealthCheckResponse,
+    ScenarioResponse,
+    ScenarioListResponse,
+)
 
-logger = logging.getLogger("locomotive")
+logger = get_logger("locomotive.system")
 
 router = APIRouter(tags=["system"])
 
@@ -13,6 +17,7 @@ VALID_SCENARIOS = ["normal", "overheat", "brake_failure", "low_fuel", "highload"
 
 @router.get(
     "/api/healthz",
+    response_model=HealthCheckResponse,
     summary="Health check",
     description="Returns system health status.",
 )
@@ -42,6 +47,7 @@ async def healthz():
 
 @router.post(
     "/api/scenario",
+    response_model=ScenarioResponse,
     summary="Switch simulator scenario",
     description=f"Switch the simulator scenario. Valid values: {', '.join(VALID_SCENARIOS)}",
 )
@@ -52,21 +58,24 @@ async def set_scenario(
     from app.main import simulator_state
 
     if scenario not in VALID_SCENARIOS:
-        return {"error": f"Invalid scenario. Must be one of: {VALID_SCENARIOS}"}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid scenario. Must be one of: {VALID_SCENARIOS}")
 
     state = simulator_state["instance"]
     if state is None:
-        return {"error": "Simulator not running"}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Simulator not running")
 
     state.scenario = scenario
     state.tick_count = 0
-    logger.info("Scenario switched to: %s", scenario)
+    logger.info("scenario_switched", scenario=scenario)
 
     return {"scenario": scenario, "message": f"Switched to '{scenario}'"}
 
 
 @router.get(
     "/api/scenarios",
+    response_model=ScenarioListResponse,
     summary="List available scenarios",
     description="Returns all available simulator scenarios.",
 )

@@ -1,12 +1,18 @@
 import asyncio
-import logging
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app.config import settings
+from app.core.logging import setup_logging, get_logger
+from app.core.exceptions import AppException
 from app.core.database import engine, Base, async_session
 from app.models.telemetry import TelemetrySnapshot
 from app.models.alert import Alert
@@ -23,11 +29,8 @@ from app.api.recommendations import router as recommendations_router
 from app.api.config import router as config_router
 from app.api.system import router as system_router
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-logger = logging.getLogger("locomotive")
+setup_logging()
+logger = get_logger("locomotive")
 
 THRESHOLD_SEED_DATA = [
     {"parameter": "speed", "min_value": 0, "max_value": 200, "warning_value": 160, "critical_value": 180},
@@ -52,6 +55,9 @@ simulator_running = {"value": False}
 # Thresholds loaded from DB, used by check_alerts
 _db_thresholds: dict[str, dict[str, float]] | None = None
 
+# Track previous health grade to log changes
+_previous_grade: str | None = None
+
 
 async def load_thresholds_from_db() -> dict[str, dict[str, float]]:
     """Load thresholds from DB and convert to dict format for check_alerts."""
@@ -63,14 +69,14 @@ async def load_thresholds_from_db() -> dict[str, dict[str, float]]:
                 for row in rows
             }
     except Exception as e:
-        logger.error("Failed to load thresholds from DB, using defaults: %s", e)
+        logger.error("threshold_load_failed", error=str(e), fallback="defaults")
         return DEFAULT_THRESHOLDS
 
 
 async def seed_threshold_config() -> None:
     async with async_session() as session:
         await health_config_repo.seed_thresholds(session, THRESHOLD_SEED_DATA)
-        logger.info("Threshold config seed check complete")
+        logger.info("threshold_seed_complete")
 
 
 # Shared simulator state — accessible for scenario switching
@@ -78,7 +84,7 @@ simulator_state: dict[str, SimulatorState | None] = {"instance": None}
 
 
 async def simulator_loop(mgr: ConnectionManager) -> None:
-    global _db_thresholds
+    global _db_thresholds, _previous_grade
     from app.services.health import compute_health
 
     state = SimulatorState(scenario=settings.simulator_scenario)
@@ -98,12 +104,24 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
             health = compute_health(snapshot)
             latest_health["value"] = health
 
+            # Log health grade changes
+            if _previous_grade is not None and health.grade != _previous_grade:
+                logger.info(
+                    "health_grade_changed",
+                    previous_grade=_previous_grade,
+                    new_grade=health.grade,
+                    score=health.score,
+                )
+            _previous_grade = health.grade
+
             alerts = check_alerts(snapshot, _db_thresholds)
             if alerts:
                 latest_alerts.extend(alerts)
                 # Keep only last 200 alerts in memory
                 if len(latest_alerts) > 200:
                     del latest_alerts[:-200]
+
+                logger.info("alerts_generated", count=len(alerts))
 
                 # Store alerts in DB
                 try:
@@ -120,7 +138,7 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
                             })
                         await session.commit()
                 except Exception as e:
-                    logger.error("Failed to store alerts: %s", e)
+                    logger.error("alert_store_failed", error=str(e))
 
             json_str = snapshot.model_dump_json(by_alias=True)
             await mgr.broadcast(json_str)
@@ -146,13 +164,12 @@ async def simulator_loop(mgr: ConnectionManager) -> None:
                 try:
                     async with async_session() as session:
                         await telemetry_repo.insert_batch(session, db_buffer)
-                    logger.debug("Batch inserted %d telemetry rows", len(db_buffer))
                 except Exception as e:
-                    logger.error("Failed to batch insert telemetry: %s", e)
+                    logger.error("telemetry_batch_insert_failed", error=str(e))
                 db_buffer.clear()
 
         except Exception as e:
-            logger.error("Simulator tick error: %s", e)
+            logger.error("simulator_tick_error", error=str(e))
 
         await asyncio.sleep(settings.simulator_interval_ms / 1000.0)
 
@@ -165,9 +182,9 @@ async def cleanup_old_data() -> None:
                 await telemetry_repo.delete_old(session, settings.history_retention_hours)
             async with async_session() as session:
                 await alert_repo.delete_old(session, settings.history_retention_hours)
-            logger.info("Cleaned up data older than %d hours", settings.history_retention_hours)
+            logger.info("data_cleanup_complete", retention_hours=settings.history_retention_hours)
         except Exception as e:
-            logger.error("Cleanup error: %s", e)
+            logger.error("data_cleanup_error", error=str(e))
 
 
 @asynccontextmanager
@@ -177,10 +194,10 @@ async def lifespan(app: FastAPI):
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database tables created")
+            logger.info("database_tables_created")
             break
         except Exception as e:
-            logger.warning("DB connection attempt %d/10 failed: %s", attempt, e)
+            logger.warning("db_connection_attempt_failed", attempt=attempt, error=str(e))
             if attempt == 10:
                 raise
             await asyncio.sleep(2)
@@ -189,7 +206,7 @@ async def lifespan(app: FastAPI):
 
     sim_task = asyncio.create_task(simulator_loop(manager))
     cleanup_task = asyncio.create_task(cleanup_old_data())
-    logger.info("Simulator and cleanup tasks started")
+    logger.info("startup_complete", tasks=["simulator", "cleanup"])
 
     yield
 
@@ -197,8 +214,11 @@ async def lifespan(app: FastAPI):
     sim_task.cancel()
     cleanup_task.cancel()
     simulator_running["value"] = False
-    logger.info("Shutting down")
+    logger.info("shutdown_complete")
 
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 app = FastAPI(
     title="КТЖ — Цифровой Двойник Локомотива",
@@ -206,6 +226,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 origins = settings.cors_origins.split(",")
 app.add_middleware(
@@ -215,6 +238,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.error, "message": exc.message, "details": exc.details},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "unhandled_exception",
+        path=str(request.url),
+        method=request.method,
+        traceback=traceback.format_exc(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_server_error", "message": "An unexpected error occurred", "details": {}},
+    )
+
 
 app.include_router(ws_router)
 app.include_router(health_router)

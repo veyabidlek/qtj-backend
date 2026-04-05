@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Query
 
+from app.schemas.responses import AlertListResponse
+
 router = APIRouter(prefix="/api", tags=["alerts"])
 
 
 @router.get(
     "/alerts",
+    response_model=AlertListResponse,
     summary="Get alerts",
     description="Returns filtered alerts. Both query params optional.",
 )

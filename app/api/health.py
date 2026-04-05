@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.security import verify_api_key
 from app.schemas.health import HealthIndex
+from app.schemas.responses import MessageResponse
 
 router = APIRouter(prefix="/api", tags=["health"])
 
@@ -32,6 +33,7 @@ async def get_health():
 
 @router.get(
     "/health/config/reload",
+    response_model=MessageResponse,
     summary="Reload health config",
     description="Reloads health_config.yaml without restart.",
 )

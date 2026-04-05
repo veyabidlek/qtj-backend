@@ -1,9 +1,8 @@
-import logging
-
+from app.core.logging import get_logger
 from app.schemas.alert import AlertSchema
 from app.schemas.telemetry import TelemetrySnapshotSchema
 
-logger = logging.getLogger("locomotive")
+logger = get_logger("locomotive.alerts")
 
 ERROR_CODES: dict[str, dict[str, str]] = {
     "temperature": {"code": "E-101", "description": "Перегрев двигателя"},
@@ -106,6 +105,6 @@ def check_alerts(
             error_code=error_code,
         )
         alerts.append(alert)
-        logger.warning("Alert: %s — %s (value=%.2f, threshold=%.2f)", severity, message, value, triggered_threshold)
+        logger.warning("alert_generated", severity=severity, parameter=key, value=round(value, 2), threshold=triggered_threshold)
 
     return alerts

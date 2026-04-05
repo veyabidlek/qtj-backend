@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.telemetry import TelemetrySnapshot
 from app.repositories import telemetry_repo
+from app.schemas.responses import HistoryResponse
 from app.schemas.telemetry import TelemetrySnapshotSchema, TelemetryPosition
 
 router = APIRouter(prefix="/api", tags=["telemetry"])
@@ -33,6 +34,7 @@ def row_to_schema(row: TelemetrySnapshot) -> dict:
 
 @router.get(
     "/history",
+    response_model=HistoryResponse,
     summary="Get telemetry history",
     description="Returns telemetry snapshots from the last N minutes.",
 )

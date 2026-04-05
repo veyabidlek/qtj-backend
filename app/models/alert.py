@@ -22,6 +22,9 @@ class Alert(Base):
     value: Mapped[float] = mapped_column(Double, nullable=False)
     threshold: Mapped[float] = mapped_column(Double, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     __table_args__ = (
         Index("idx_alerts_ts", "timestamp", postgresql_using="btree"),

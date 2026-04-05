@@ -1,10 +1,13 @@
 from fastapi import APIRouter
 
+from app.schemas.responses import RecommendationListResponse
+
 router = APIRouter(prefix="/api", tags=["recommendations"])
 
 
 @router.get(
     "/recommendations",
+    response_model=RecommendationListResponse,
     summary="Get recommendations",
     description="Returns current recommendations based on latest snapshot and health.",
 )
