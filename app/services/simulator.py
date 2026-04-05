@@ -57,6 +57,8 @@ class SimulatorState:
 
         self.route_manager = RouteManager()
         self.route_completed = False
+        self._ticks_since_depart = 0  # ticks since leaving a station
+        self._was_at_station = True   # start at station
 
     def reset_to_defaults(self) -> None:
         """Reset all telemetry values to safe initial state."""
@@ -64,6 +66,8 @@ class SimulatorState:
             setattr(self, key, value)
         self.route_manager = RouteManager()
         self.route_completed = False
+        self._ticks_since_depart = 0
+        self._was_at_station = True
 
     def _apply_scenario_bias(self) -> dict[str, float]:
         """Returns additive biases per parameter based on active scenario."""
@@ -131,10 +135,11 @@ class SimulatorState:
         self.tick_count += 1
         bias = self._apply_scenario_bias()
 
-        # Speed: acceleration phase then mean-reversion to cruising speed
-        if self.tick_count <= ACCEL_TICKS:
+        # Speed: acceleration after station stop, then mean-reversion to cruising
+        ticks_moving = self._ticks_since_depart
+        if ticks_moving <= ACCEL_TICKS:
             # Ramp up from 0 to cruising speed over ACCEL_TICKS
-            target = CRUISING_SPEED * (self.tick_count / ACCEL_TICKS)
+            target = CRUISING_SPEED * (ticks_moving / ACCEL_TICKS)
             self.speed = clamp(target + drift(3), 0, MAX_SPEED)
         else:
             # Mean-revert toward cruising speed + scenario bias + small noise
@@ -192,18 +197,29 @@ class SimulatorState:
             result = self.route_manager.tick()
             self.lat = result.lat
             self.lng = result.lng
-            if result.completed:
-                self.route_completed = True
-                # Train has stopped — set idle values
+
+            if result.at_station:
+                # At station — idle values
                 self.speed = 0
                 self.traction_effort = 0
-                self.fuel_consumption = 0
-                self.current = 0
-                self.vibration = 0.3
-                self.brake_pressure = 0.85
+                self.fuel_consumption = clamp(85 + drift(5), 80, 100)
+                self.current = clamp(110 + drift(10), 100, 130)
+                self.vibration = clamp(0.3 + drift(0.1), 0.2, 0.5)
+                self.brake_pressure = clamp(0.85 + drift(0.02), 0.8, 0.9)
                 self.efficiency = 0
-                self.temperature = clamp(self.temperature - 5, 40, 120)
-                self.oil_temperature = clamp(self.oil_temperature - 3, 60, 150)
+                self.temperature = clamp(self.temperature - 0.5, 50, 120)
+                self.oil_temperature = clamp(self.oil_temperature - 0.3, 65, 150)
+                self._was_at_station = True
+                self._ticks_since_depart = 0
+
+                if result.completed:
+                    self.route_completed = True
+            else:
+                # Just departed — track acceleration
+                if self._was_at_station:
+                    self._was_at_station = False
+                    self._ticks_since_depart = 0
+                self._ticks_since_depart += 1
 
         timestamp = int(time.time() * 1000)
 

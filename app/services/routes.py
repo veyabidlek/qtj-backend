@@ -40,6 +40,9 @@ ROUTES = {
 }
 
 
+STATION_STOP_TICKS = 5  # seconds to stop at each station
+
+
 @dataclass
 class RouteTickResult:
     lat: float
@@ -49,6 +52,7 @@ class RouteTickResult:
     current_station_name: str
     next_station_name: str | None
     segment_progress: float  # 0.0-1.0 within current segment
+    at_station: bool = False  # True when stopped at a station
 
 
 class RouteManager:
@@ -63,6 +67,7 @@ class RouteManager:
         self._segment_index: int = 0  # which segment (station pair) we're on
         self._tick_in_segment: int = 0
         self._completed: bool = False
+        self._stop_ticks_remaining: int = STATION_STOP_TICKS  # start stopped at first station
 
     @property
     def route_id(self) -> str:
@@ -80,6 +85,7 @@ class RouteManager:
         self._segment_index = 0
         self._tick_in_segment = 0
         self._completed = False
+        self._stop_ticks_remaining = 0
 
     def tick(self) -> RouteTickResult:
         stations = self._route["stations"]
@@ -96,6 +102,23 @@ class RouteManager:
                 current_station_name=last["name"],
                 next_station_name=None,
                 segment_progress=1.0,
+                at_station=True,
+            )
+
+        # If stopped at a station, count down
+        if self._stop_ticks_remaining > 0:
+            self._stop_ticks_remaining -= 1
+            station = stations[self._segment_index]
+            next_station = stations[self._segment_index + 1] if self._segment_index + 1 < len(stations) else None
+            return RouteTickResult(
+                lat=station["lat"],
+                lng=station["lng"],
+                completed=False,
+                current_station_index=self._segment_index,
+                current_station_name=station["name"],
+                next_station_name=next_station["name"] if next_station else None,
+                segment_progress=0.0,
+                at_station=True,
             )
 
         # Interpolate within current segment
@@ -127,7 +150,10 @@ class RouteManager:
                     current_station_name=last["name"],
                     next_station_name=None,
                     segment_progress=1.0,
+                    at_station=True,
                 )
+            # Arrived at next station — stop for STATION_STOP_TICKS
+            self._stop_ticks_remaining = STATION_STOP_TICKS
 
         return RouteTickResult(
             lat=lat,
