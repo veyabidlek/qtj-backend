@@ -163,6 +163,16 @@ class SimulatorState:
             self.lng = result.lng
             if result.completed:
                 self.route_completed = True
+                # Train has stopped — set idle values
+                self.speed = 0
+                self.traction_effort = 0
+                self.fuel_consumption = 0
+                self.current = 0
+                self.vibration = 0.3
+                self.brake_pressure = 0.85
+                self.efficiency = 0
+                self.temperature = clamp(self.temperature - 5, 40, 120)
+                self.oil_temperature = clamp(self.oil_temperature - 3, 60, 150)
 
         timestamp = int(time.time() * 1000)
 
