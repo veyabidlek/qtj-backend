@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     db_batch_interval_s: int = 5
     history_retention_hours: int = 72
     log_level: str = "INFO"
+    simulator_scenario: str = "normal"  # normal | overheat | brake_failure | low_fuel | highload | demo
 
     class Config:
         env_file = ".env"

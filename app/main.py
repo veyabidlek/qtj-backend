@@ -64,10 +64,15 @@ async def seed_threshold_config() -> None:
         logger.info("Seeded %d threshold config rows", len(THRESHOLD_SEED_DATA))
 
 
+# Shared simulator state — accessible for scenario switching
+simulator_state: dict[str, SimulatorState | None] = {"instance": None}
+
+
 async def simulator_loop(mgr: ConnectionManager) -> None:
     from app.services.health import compute_health
 
-    state = SimulatorState()
+    state = SimulatorState(scenario=settings.simulator_scenario)
+    simulator_state["instance"] = state
     db_buffer: list[dict] = []
     batch_size = settings.db_batch_interval_s
     simulator_running["value"] = True
