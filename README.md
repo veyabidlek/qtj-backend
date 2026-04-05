@@ -1,5 +1,7 @@
 # КТЖ — Цифровой Двойник Локомотива (Backend)
 
+> Deployed at: http://165.22.216.205:8000 | Swagger: http://165.22.216.205:8000/docs
+
 FastAPI backend for real-time locomotive telemetry streaming, health index calculation, and alert management.
 
 ## Quick Start (Docker)
