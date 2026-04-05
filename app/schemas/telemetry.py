@@ -27,3 +27,4 @@ class TelemetrySnapshotSchema(BaseModel):
     traction_effort: float
     efficiency: float
     position: TelemetryPosition
+    train_state: str = "moving"  # "stopped", "moving", "approaching_station"

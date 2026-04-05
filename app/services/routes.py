@@ -53,6 +53,7 @@ class RouteTickResult:
     next_station_name: str | None
     segment_progress: float  # 0.0-1.0 within current segment
     at_station: bool = False  # True when stopped at a station
+    approaching_station: bool = False  # True 5s before arriving at next station
 
 
 class RouteManager:
@@ -131,6 +132,10 @@ class RouteManager:
         current_station_name = s1["name"]
         next_station_name = s2["name"]
 
+        # Check if approaching next station (within 5 ticks)
+        ticks_remaining = ticks_per_seg - self._tick_in_segment
+        approaching = ticks_remaining <= STATION_STOP_TICKS
+
         # Advance tick
         self._tick_in_segment += 1
         if self._tick_in_segment >= ticks_per_seg:
@@ -163,6 +168,7 @@ class RouteManager:
             current_station_name=current_station_name,
             next_station_name=next_station_name,
             segment_progress=frac,
+            approaching_station=approaching,
         )
 
     def status(self) -> dict:

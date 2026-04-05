@@ -193,12 +193,14 @@ class SimulatorState:
         )
 
         # Advance along the active route
+        train_state = "moving"
         if not self.route_completed:
             result = self.route_manager.tick()
             self.lat = result.lat
             self.lng = result.lng
 
             if result.at_station:
+                train_state = "stopped"
                 # At station — idle values
                 self.speed = 0
                 self.traction_effort = 0
@@ -214,12 +216,21 @@ class SimulatorState:
 
                 if result.completed:
                     self.route_completed = True
-            else:
+            elif result.approaching_station:
+                train_state = "approaching_station"
                 # Just departed — track acceleration
                 if self._was_at_station:
                     self._was_at_station = False
                     self._ticks_since_depart = 0
                 self._ticks_since_depart += 1
+            else:
+                train_state = "moving"
+                if self._was_at_station:
+                    self._was_at_station = False
+                    self._ticks_since_depart = 0
+                self._ticks_since_depart += 1
+        else:
+            train_state = "stopped"
 
         timestamp = int(time.time() * 1000)
 
@@ -237,4 +248,5 @@ class SimulatorState:
             traction_effort=self.traction_effort,
             efficiency=self.efficiency,
             position=TelemetryPosition(lat=self.lat, lng=self.lng),
+            train_state=train_state,
         )
